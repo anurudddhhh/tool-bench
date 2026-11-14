@@ -1,0 +1,81 @@
+# ==============================================================================
+# Toolbench Master Configuration
+# ==============================================================================
+
+# MCP Server Definitions
+# Windows requirement: npx servers are wrapped with 'cmd /c'. uvx and docker run natively.
+mcp:
+  - name: "filesystem"
+    command: "cmd"
+    args:
+      - "/c"
+      - "npx"
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "D:\\tool-bench\\data"
+
+  - name: "memory"
+    command: "cmd"
+    args:
+      - "/c"
+      - "npx"
+      - "-y"
+      - "@modelcontextprotocol/server-memory"
+
+  - name: "git"
+    command: "uvx"
+    args:
+      - "mcp-server-git"
+      - "-r"
+      - "D:\\tool-bench"
+
+  - name: "fetch"
+    command: "uvx"
+    args:
+      - "mcp-server-fetch"
+
+  - name: "time"
+    command: "uvx"
+    args:
+      - "mcp-server-time"
+
+# LLM Provider Configuration
+model:
+  provider: "gemini"
+  name: "gemini-2.5-flash"
+  api_key_env: "GEMINI_API_KEY"
+
+# Synthetic Prompt Generation Settings (F2)
+generation:
+  count: 160
+  temperature: 0.7
+  prompts_per_tool: 3
+  max_words: 200
+
+# Benchmark Evaluation Settings (F4+F7)
+# Note: temperature is strictly enforced to 0.0 for measurement reproducibility.
+evaluation:
+  temperature: 0.0
+  max_retries: 1
+
+# Embedding Retrieval Settings (F5, D1)
+retrieval:
+  model_name: "all-MiniLM-L6-v2"
+  candidate_k_values: [5, 10, 15, 20, 25, 30]
+  target_recall: 0.95
+
+# Dataset Split and Freeze Invariants (F3)
+split:
+  heldout_size: 50
+  min_dev_size: 40
+  seed: 42
+  similarity_threshold: 0.8
+  max_cluster_size: 5
+
+# Rate Limiting & Backoff (F11b) - Tuned for Gemini Free Tier
+rate_limit:
+  rpm: 15
+  rpd: 1500
+  tpm: 1000000
+  backoff_factor: 2.0
+  max_backoff: 60.0
