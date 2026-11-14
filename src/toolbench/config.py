@@ -76,7 +76,10 @@ class EvaluationConfig(BaseModel):
         default=1,
         ge=0,
         le=1,
-        description="Maximum schema validation retry attempts per prompt (capped at 1)",
+        description=(
+            "Maximum schema validation retry attempts per prompt "
+            "(capped at 1; distinct from 429 backoff)"
+        ),
     )
 
     @field_validator("temperature")
@@ -144,6 +147,15 @@ class RateLimitConfig(BaseModel):
     tpm: int = Field(default=1000000, ge=1, description="Maximum tokens per minute")
     backoff_factor: float = Field(default=2.0, ge=1.0, description="Exponential backoff multiplier")
     max_backoff: float = Field(default=60.0, ge=1.0, description="Maximum backoff wait in seconds")
+    max_retries: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description=(
+            "Maximum retry attempts for HTTP 429 rate limit backoff "
+            "(distinct from schema validation retry)"
+        ),
+    )
 
 
 class ToolbenchConfig(BaseModel):

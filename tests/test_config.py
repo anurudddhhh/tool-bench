@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from toolbench.config import (
     EvaluationConfig,
     MCPServerConfig,
+    RateLimitConfig,
     SplitConfig,
     ToolbenchConfig,
     load_config,
@@ -26,6 +27,7 @@ def test_default_config() -> None:
     assert cfg.split.heldout_size == 50
     assert cfg.split.min_dev_size == 40
     assert cfg.rate_limit.rpm == 15
+    assert cfg.rate_limit.max_retries == 5
 
 
 def test_load_config_default_file() -> None:
@@ -125,3 +127,19 @@ def test_non_dict_yaml_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc_info:
         load_config(bad_yaml)
     assert "must define a YAML mapping/dict" in str(exc_info.value)
+
+
+def test_rate_limit_max_retries_range() -> None:
+    """Verify that rate limit backoff retries enforce 1..10 range."""
+    assert RateLimitConfig(max_retries=1).max_retries == 1
+    assert RateLimitConfig(max_retries=5).max_retries == 5
+    assert RateLimitConfig(max_retries=10).max_retries == 10
+
+    # Below 1 is invalid
+    with pytest.raises(ValidationError):
+        RateLimitConfig(max_retries=0)
+
+    # Above 10 is invalid
+    with pytest.raises(ValidationError):
+        RateLimitConfig(max_retries=11)
+

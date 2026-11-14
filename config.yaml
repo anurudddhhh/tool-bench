@@ -4,6 +4,8 @@
 
 # MCP Server Definitions
 # Windows requirement: npx servers are wrapped with 'cmd /c'. uvx and docker run natively.
+# NOTE (Tool Count Ceiling Warning): These 5 servers typically yield ~27-37 tools.
+# If total tools < 40, F1.5 and the Pilot Gate will evaluate adding a 6th server (e.g. Docker GitHub MCP).
 mcp:
   - name: "filesystem"
     command: "cmd"
@@ -54,6 +56,7 @@ generation:
 
 # Benchmark Evaluation Settings (F4+F7)
 # Note: temperature is strictly enforced to 0.0 for measurement reproducibility.
+# max_retries is strictly for LLM schema argument validation (capped at 1).
 evaluation:
   temperature: 0.0
   max_retries: 1
@@ -73,9 +76,13 @@ split:
   max_cluster_size: 5
 
 # Rate Limiting & Backoff (F11b) - Tuned for Gemini Free Tier
+# NOTE (Open Item #1): The 15 RPM / 1500 RPD values below are provisional placeholders.
+# Before finalizing F11b and F11d, verify current Google AI Studio documentation for
+# the chosen Gemini model's exact free-tier limits.
 rate_limit:
   rpm: 15
   rpd: 1500
   tpm: 1000000
   backoff_factor: 2.0
   max_backoff: 60.0
+  max_retries: 5  # HTTP 429 exponential backoff retries (distinct from schema retry)
