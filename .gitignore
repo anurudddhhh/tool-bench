@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Testing & Linting caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment and Secrets
+.env
+.env*.local
+!.env.example
+
+# Toolbench Internal Tracking (user requested to exclude from git repo)
+decisions.md
+requirement.md
+
+# Toolbench Caches & Temporary Run Data
+.cache/
+data/*
+!data/.gitkeep
+results/*
+!results/heldout_log.jsonl
+!results/.gitkeep
+
+# Dashboard node artifacts
+dashboard/node_modules/
+dashboard/dist/
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
