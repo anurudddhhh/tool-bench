@@ -152,9 +152,7 @@ def test_cli_rewrite_descriptions_command(tmp_path: Path):
 
 
 def test_cli_compare_retrieval_command(tmp_path: Path):
-    dev_prompts = [
-        {"prompt_id": "1", "prompt_text": "read file", "expected_tool": "fs_read"}
-    ]
+    dev_prompts = [{"prompt_id": "1", "prompt_text": "read file", "expected_tool": "fs_read"}]
     dev_file = tmp_path / "dev_prompts.json"
     dev_file.write_text(json.dumps(dev_prompts), encoding="utf-8")
 
@@ -203,6 +201,3 @@ def test_cli_tui_command_non_interactive(tmp_path: Path):
     result = runner.invoke(app, ["tui", "--results-dir", str(tmp_path), "--non-interactive"])
     assert result.exit_code == 0
     assert "TOOLBENCH" in result.stdout
-
-
-

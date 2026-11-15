@@ -100,9 +100,7 @@ async def test_proxy_call_tool_passthrough(
 
     assert result["status"] == "success"
     assert result["result"] == {"bytes_written": 42}
-    mock_caller.assert_called_once_with(
-        "fs", "fs_write", {"path": "test.txt", "content": "hello"}
-    )
+    mock_caller.assert_called_once_with("fs", "fs_write", {"path": "test.txt", "content": "hello"})
 
 
 @pytest.mark.anyio

@@ -126,10 +126,9 @@ class TerminalDashboard:
         table.add_column("Holm Adj p", justify="right")
         table.add_column("Significance", justify="center")
 
-        all_comps = (
-            self._comparison_report.get("primary_comparisons", [])
-            + self._comparison_report.get("exploratory_comparisons", [])
-        )
+        all_comps = self._comparison_report.get(
+            "primary_comparisons", []
+        ) + self._comparison_report.get("exploratory_comparisons", [])
 
         for comp in all_comps:
             pair = comp.get("comparison", "")
