@@ -31,6 +31,7 @@ def test_cli_help():
     assert "analyze-failures" in result.stdout
     assert "validate" in result.stdout
     assert "proxy" in result.stdout
+    assert "tui" in result.stdout
 
 
 def test_cli_validate_command_success(tmp_path: Path):
@@ -196,5 +197,12 @@ def test_cli_proxy_command():
         assert result.exit_code == 0
         assert "Starting Toolbench Retrieval Proxy" in result.stdout
         assert mock_server.run_stdio_async.called
+
+
+def test_cli_tui_command_non_interactive(tmp_path: Path):
+    result = runner.invoke(app, ["tui", "--results-dir", str(tmp_path), "--non-interactive"])
+    assert result.exit_code == 0
+    assert "TOOLBENCH" in result.stdout
+
 
 

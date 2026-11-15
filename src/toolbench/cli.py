@@ -561,5 +561,33 @@ def proxy_command(
     asyncio.run(server.run_stdio_async())
 
 
+@app.command("tui")
+def tui_command(
+    results_dir: Annotated[
+        str,
+        typer.Option(
+            "--results-dir",
+            "-d",
+            help="Directory containing benchmark result JSON files",
+        ),
+    ] = "results",
+    non_interactive: Annotated[
+        bool,
+        typer.Option(
+            "--non-interactive",
+            help="Render full dashboard once without interactive prompt",
+        ),
+    ] = False,
+) -> None:
+    """Launch the interactive Terminal UI (TUI) Dashboard for results exploration (D4)."""
+    from toolbench.tui import TerminalDashboard, run_interactive_dashboard
+
+    dashboard = TerminalDashboard(results_dir=results_dir)
+    if non_interactive:
+        console.print(dashboard.render_full_dashboard())
+    else:
+        run_interactive_dashboard(dashboard)
+
+
 if __name__ == "__main__":
     app()
