@@ -238,8 +238,7 @@ def split_dataset(
             c_id = prompt_to_cluster[cand_idx]
             cluster_members = cluster_map[c_id]
             unadded = [
-                m for m in cluster_members
-                if m not in heldout_indices and m not in singletons
+                m for m in cluster_members if m not in heldout_indices and m not in singletons
             ]
             # Protect dev set minimum size from cluster expansion
             if (v_count - (len(heldout_indices) + len(unadded))) < min_dev:
@@ -297,16 +296,17 @@ def save_dataset_split(
     heldout_file = out_dir / "heldout_prompts.json"
     hash_file = out_dir / "heldout_hash.sha256"
 
-    dev_file.write_text(json.dumps(dev_prompts, indent=2), encoding="utf-8")
-    heldout_file.write_text(json.dumps(heldout_prompts, indent=2, sort_keys=True), encoding="utf-8")
-    hash_file.write_text(heldout_hash, encoding="utf-8")
+    dev_json = json.dumps(dev_prompts, indent=2)
+    heldout_json = json.dumps(heldout_prompts, indent=2, sort_keys=True)
+
+    dev_file.write_bytes(dev_json.encode("utf-8"))
+    heldout_file.write_bytes(heldout_json.encode("utf-8"))
+    hash_file.write_text(heldout_hash.strip(), encoding="utf-8")
 
     return dev_file, heldout_file, hash_file
 
 
-ReviewDecisionCallback = Callable[
-    [dict[str, Any], int, int], tuple[str, dict[str, Any] | None]
-]
+ReviewDecisionCallback = Callable[[dict[str, Any], int, int], tuple[str, dict[str, Any] | None]]
 
 
 def review_prompt_batch(

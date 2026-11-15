@@ -158,9 +158,7 @@ def compute_run_metrics(results: list[dict[str, Any]]) -> RunMetrics:
     strict_match = sum(1 for r in results if r.get("args_strict_match") is True)
     cached_hits = sum(1 for r in results if r.get("cached") is True)
     latencies = [
-        float(r.get("latency_ms", 0.0))
-        for r in results
-        if r.get("latency_ms") is not None
+        float(r.get("latency_ms", 0.0)) for r in results if r.get("latency_ms") is not None
     ]
     avg_latency = (sum(latencies) / len(latencies)) if latencies else 0.0
 

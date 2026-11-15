@@ -50,10 +50,10 @@ def test_batch_cosine_similarity() -> None:
     query = np.array([1.0, 0.0], dtype=np.float32)
     corpus = np.array(
         [
-            [1.0, 0.0],   # Identical -> 1.0
-            [0.0, 1.0],   # Orthogonal -> 0.0
+            [1.0, 0.0],  # Identical -> 1.0
+            [0.0, 1.0],  # Orthogonal -> 0.0
             [-1.0, 0.0],  # Opposite -> -1.0
-            [0.0, 0.0],   # Zero -> 0.0
+            [0.0, 0.0],  # Zero -> 0.0
         ],
         dtype=np.float32,
     )

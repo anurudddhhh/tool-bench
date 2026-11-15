@@ -256,4 +256,3 @@ def test_gemini_provider_reverse_mapping() -> None:
     # Must be reverse-mapped to the original raw name with hyphen
     assert resp.chosen_tool == "mcp-server-git__commit"
     assert resp.chosen_args == {"message": "fix"}
-

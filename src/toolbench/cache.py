@@ -180,6 +180,4 @@ class DiskCache:
         """Return the count of valid cached entries (.json files)."""
         if not self.cache_dir.exists():
             return 0
-        return sum(
-            1 for p in self.cache_dir.iterdir() if p.is_file() and p.name.endswith(".json")
-        )
+        return sum(1 for p in self.cache_dir.iterdir() if p.is_file() and p.name.endswith(".json"))

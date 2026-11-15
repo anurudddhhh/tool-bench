@@ -84,10 +84,7 @@ def test_apply_holm_bonferroni():
 
 def test_categorize_prompt_failure_priority():
     # 1. Error
-    assert (
-        categorize_prompt_failure({"error": "Timeout", "tool_correct": False})
-        == "error"
-    )
+    assert categorize_prompt_failure({"error": "Timeout", "tool_correct": False}) == "error"
 
     # 2. Retrieval miss (retrieval setup)
     assert (
@@ -118,9 +115,7 @@ def test_categorize_prompt_failure_priority():
 
     # 3. No tool call
     assert (
-        categorize_prompt_failure(
-            {"chosen_tool": None, "text_response": "I cannot answer this."}
-        )
+        categorize_prompt_failure({"chosen_tool": None, "text_response": "I cannot answer this."})
         == "no_tool_call"
     )
 
@@ -134,9 +129,7 @@ def test_categorize_prompt_failure_priority():
 
     # 5. Confusion
     assert (
-        categorize_prompt_failure(
-            {"chosen_tool": "wrong_tool", "tool_correct": False}
-        )
+        categorize_prompt_failure({"chosen_tool": "wrong_tool", "tool_correct": False})
         == "confusion"
     )
 

@@ -95,8 +95,7 @@ def test_largest_remainder_allocation() -> None:
 def test_split_dataset_volume_validation() -> None:
     """Verify split_dataset enforces V >= heldout_size + min_dev_size."""
     few_prompts = [
-        {"prompt_id": i, "prompt_text": f"P{i}", "expected_tool": "t1"}
-        for i in range(50)
+        {"prompt_id": i, "prompt_text": f"P{i}", "expected_tool": "t1"} for i in range(50)
     ]
     cfg = SplitConfig(heldout_size=50, min_dev_size=40)
 

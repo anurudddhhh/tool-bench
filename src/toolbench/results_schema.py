@@ -22,7 +22,7 @@ class PromptResultRecord(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    prompt_id: str = Field(description="Unique prompt identifier")
+    prompt_id: str | int = Field(description="Unique prompt identifier")
     prompt: str = Field(description="User prompt text")
     expected_tool: str = Field(description="Ground truth target tool")
     chosen_tool: str | None = Field(default=None, description="Tool selected by the LLM")

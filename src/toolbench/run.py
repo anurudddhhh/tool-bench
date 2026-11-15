@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,8 +34,9 @@ logger = logging.getLogger(__name__)
 class PromptResultRecord(BaseModel):
     """Detailed benchmark evaluation result record for a single prompt."""
 
-    prompt_id: int
-    prompt_text: str
+    prompt_id: int | str
+    prompt_text: str = ""
+    prompt: str = ""
     expected_tool: str
     expected_args: dict[str, Any]
     acceptable_args: list[dict[str, Any]]
@@ -48,6 +50,7 @@ class PromptResultRecord(BaseModel):
     chosen_args_has_extra_keys: bool = False
     retry_attempted: bool = False
     retry_fixed: bool = False
+    retry_succeeded: bool = False
     prompt_tokens: int = 0
     completion_tokens: int = 0
     latency_ms: float = 0.0
@@ -62,12 +65,18 @@ class BenchmarkRunResult(BaseModel):
     split: str
     timestamp: str
     model: str
-    total_prompts: int
-    tool_accuracy: float
-    strict_match_rate: float
-    pre_retry_validity_rate: float
-    post_retry_validity_rate: float
-    records: list[PromptResultRecord]
+    run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    heldout_hash: str | None = None
+    evaluation_temperature: float = 0.0
+    total_prompts: int = 0
+    tool_accuracy: float = 0.0
+    strict_match_rate: float = 0.0
+    pre_retry_validity_rate: float = 0.0
+    post_retry_validity_rate: float = 0.0
+    records: list[PromptResultRecord] = Field(default_factory=list)
+    results: list[PromptResultRecord] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    output_file: str | None = None
 
 
 def verify_heldout_hash(
@@ -297,15 +306,9 @@ def run_benchmark(
                 chosen_args = retry_resp.chosen_args or {}
                 # Update tool correctness if retry changed the tool selection
                 tool_in_exposed = chosen_tool in exposed_tool_names
-                tool_correct = bool(
-                    chosen_tool == expected_tool and tool_in_exposed
-                )
+                tool_correct = bool(chosen_tool == expected_tool and tool_in_exposed)
 
-                retry_schema = (
-                    tool_map[chosen_tool].input_schema
-                    if chosen_tool in tool_map
-                    else {}
-                )
+                retry_schema = tool_map[chosen_tool].input_schema if chosen_tool in tool_map else {}
                 valid_post, _ = validate_schema(retry_schema, chosen_args)
                 retry_fixed = valid_post
 
@@ -323,6 +326,7 @@ def run_benchmark(
         record = PromptResultRecord(
             prompt_id=prompt_id,
             prompt_text=prompt_text,
+            prompt=prompt_text,
             expected_tool=expected_tool,
             expected_args=expected_args,
             acceptable_args=acceptable_args,
@@ -336,6 +340,7 @@ def run_benchmark(
             chosen_args_has_extra_keys=has_extra_keys,
             retry_attempted=retry_attempted,
             retry_fixed=retry_fixed,
+            retry_succeeded=retry_fixed,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             latency_ms=latency_ms,
@@ -345,50 +350,74 @@ def run_benchmark(
         records.append(record)
 
     total_count = len(records)
-    tool_accuracy = (
-        sum(1 for r in records if r.tool_correct) / total_count
-        if total_count
-        else 0.0
-    )
+    tool_accuracy = sum(1 for r in records if r.tool_correct) / total_count if total_count else 0.0
     strict_match_rate = (
-        sum(1 for r in records if r.args_strict_match) / total_count
-        if total_count
-        else 0.0
+        sum(1 for r in records if r.args_strict_match) / total_count if total_count else 0.0
     )
     pre_validity_rate = (
-        sum(1 for r in records if r.args_valid_pre_retry) / total_count
-        if total_count
-        else 0.0
+        sum(1 for r in records if r.args_valid_pre_retry) / total_count if total_count else 0.0
     )
     post_validity_rate = (
-        sum(1 for r in records if r.args_valid_post_retry) / total_count
-        if total_count
-        else 0.0
+        sum(1 for r in records if r.args_valid_post_retry) / total_count if total_count else 0.0
     )
+
+    heldout_hash_val = None
+    if split == "heldout":
+        h_file = Path(data_dir) / "heldout_hash.sha256"
+        if h_file.exists():
+            heldout_hash_val = h_file.read_text(encoding="utf-8").strip()
+
+    recovery_count = sum(1 for r in records if r.retry_fixed)
+    invalid_pre_count = sum(1 for r in records if not r.args_valid_pre_retry)
+    recovery_rate = (recovery_count / invalid_pre_count) if invalid_pre_count > 0 else 0.0
+    match_score_mean = (
+        sum(r.args_match_score for r in records) / total_count if total_count else 0.0
+    )
+    cache_hits = sum(1 for r in records if r.cached)
+    cache_hit_rate = (cache_hits / total_count) if total_count else 0.0
+    avg_latency = sum(r.latency_ms for r in records) / total_count if total_count else 0.0
+    total_tokens = sum(r.prompt_tokens + r.completion_tokens for r in records)
+
+    metrics_payload = {
+        "tool_accuracy": tool_accuracy,
+        "args_valid_pre_retry_rate": pre_validity_rate,
+        "args_valid_post_retry_rate": post_validity_rate,
+        "args_strict_match_rate": strict_match_rate,
+        "recovery_rate": recovery_rate,
+        "args_match_score_mean": match_score_mean,
+        "total_prompts": total_count,
+        "total_tokens": total_tokens,
+        "avg_latency_ms": avg_latency,
+        "cache_hit_rate": cache_hit_rate,
+    }
+
+    records_dict = [r.model_dump() for r in records]
+    run_metrics = compute_run_metrics(records_dict)
+
+    res_dir = Path(results_dir)
+    res_dir.mkdir(parents=True, exist_ok=True)
+    out_file = res_dir / f"{setup}_{split}_{timestamp}.json"
 
     run_result = BenchmarkRunResult(
         setup=setup,
         split=split,
         timestamp=timestamp,
         model=provider.model_name,
+        heldout_hash=heldout_hash_val,
+        evaluation_temperature=cfg.evaluation.temperature,
         total_prompts=total_count,
         tool_accuracy=tool_accuracy,
         strict_match_rate=strict_match_rate,
         pre_retry_validity_rate=pre_validity_rate,
         post_retry_validity_rate=post_validity_rate,
         records=records,
+        results=records,
+        metrics=metrics_payload,
+        output_file=str(out_file),
     )
 
-    # Save to results directory
-    res_dir = Path(results_dir)
-    res_dir.mkdir(parents=True, exist_ok=True)
-    out_file = res_dir / f"{setup}_{split}_{timestamp}.json"
     out_file.write_text(run_result.model_dump_json(indent=2), encoding="utf-8")
     logger.info("Saved benchmark evaluation results to '%s'.", out_file)
-
-    # Render terminal summary
-    records_dict = [r.model_dump() for r in records]
-    run_metrics = compute_run_metrics(records_dict)
     summary_table = render_run_summary(
         run_metrics,
         title=f"Benchmark Execution Summary ({setup} - {split})",
@@ -396,12 +425,7 @@ def run_benchmark(
     console.print(summary_table)
 
     # Dev-set ceiling effect warning check
-    if (
-        split == "dev"
-        and setup == "A"
-        and tool_accuracy >= 0.95
-        and not acknowledge_ceiling
-    ):
+    if split == "dev" and setup == "A" and tool_accuracy >= 0.95 and not acknowledge_ceiling:
         logger.warning(
             "CEILING EFFECT DETECTED: Baseline tool accuracy on dev split is %.1f%% "
             "(>= 95%%). Downstream retrieval may show minimal observable delta. "

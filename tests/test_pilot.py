@@ -121,8 +121,7 @@ def test_pilot_gate_insufficient_prompts_raises() -> None:
 
     # Only 10 prompts
     few_prompts = [
-        {"prompt_id": i, "prompt_text": f"Q{i}", "expected_tool": "t0"}
-        for i in range(10)
+        {"prompt_id": i, "prompt_text": f"Q{i}", "expected_tool": "t0"} for i in range(10)
     ]
 
     with pytest.raises(RuntimeError) as exc_info:

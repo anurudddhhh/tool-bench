@@ -144,4 +144,3 @@ def test_rate_limit_max_retries_range() -> None:
     # Above 10 is invalid
     with pytest.raises(ValidationError):
         RateLimitConfig(max_retries=11)
-

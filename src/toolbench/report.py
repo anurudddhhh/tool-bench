@@ -211,7 +211,7 @@ def analyze_failures(
     """
     setup = result_data.get("setup", "A")
     is_retrieval = setup.upper() in {"C", "D"}
-    items = result_data.get("results", [])
+    items = result_data.get("results") or result_data.get("records", [])
 
     categories = [
         "pass",
@@ -241,9 +241,7 @@ def analyze_failures(
         )
 
     total = len(items)
-    percentages = {
-        cat: (cnt / total * 100.0) if total > 0 else 0.0 for cat, cnt in counts.items()
-    }
+    percentages = {cat: (cnt / total * 100.0) if total > 0 else 0.0 for cat, cnt in counts.items()}
 
     return {
         "setup": setup,
@@ -302,7 +300,8 @@ def compare_setups(
 
     for setup_key, res in loaded_results.items():
         outcomes: dict[str, bool] = {}
-        for item in res.get("results", []):
+        items = res.get("results") or res.get("records", [])
+        for item in items:
             p_id = item.get("prompt_id")
             if p_id:
                 outcomes[p_id] = bool(item.get("tool_correct", False))
@@ -486,8 +485,7 @@ def append_heldout_audit_log(
 
     entry = {
         "run_id": record.get("run_id"),
-        "timestamp": record.get("timestamp")
-        or datetime.now(timezone.utc).isoformat(),
+        "timestamp": record.get("timestamp") or datetime.now(timezone.utc).isoformat(),
         "setup": record.get("setup"),
         "model": record.get("model"),
         "heldout_hash": record.get("heldout_hash"),

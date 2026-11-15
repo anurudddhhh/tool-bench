@@ -144,9 +144,7 @@ class GeminiProvider(ProviderBase):
     ) -> ProviderResponse:
         """Send prompt and tools to Gemini, utilizing cache and rate limiting."""
         normalized_messages = self.normalize_messages(messages)
-        prompt_text = "\n".join(
-            str(m.get("content", "")) for m in normalized_messages
-        )
+        prompt_text = "\n".join(str(m.get("content", "")) for m in normalized_messages)
 
         # 1. Check disk cache if available
         cache_key: str | None = None
@@ -191,8 +189,8 @@ class GeminiProvider(ProviderBase):
             )
 
         try:
-            api_response: types.GenerateContentResponse = (
-                self.rate_limiter.execute_with_retry(_call_api)
+            api_response: types.GenerateContentResponse = self.rate_limiter.execute_with_retry(
+                _call_api
             )
         except Exception as exc:
             latency_ms = (time.perf_counter() - start_time) * 1000.0

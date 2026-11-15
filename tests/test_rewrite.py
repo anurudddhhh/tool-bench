@@ -54,10 +54,7 @@ def test_clean_rewritten_text():
         clean_rewritten_text("Rewritten Description: Cleans up formatting.")
         == "Cleans up formatting."
     )
-    assert (
-        clean_rewritten_text("Description: Execute a command.")
-        == "Execute a command."
-    )
+    assert clean_rewritten_text("Description: Execute a command.") == "Execute a command."
 
 
 def test_rewrite_descriptions_and_load(tmp_path: Path):
