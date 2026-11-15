@@ -188,3 +188,72 @@ def test_get_provider_factory() -> None:
     with pytest.raises(ValueError) as exc_info:
         get_provider(bad_cfg)
     assert "Unsupported provider" in str(exc_info.value)
+
+
+def test_gemini_sanitize_tool_name_rules() -> None:
+    """Verify Gemini function name sanitization rules."""
+    used: dict[str, str] = {}
+
+    # Basic invalid characters
+    assert (
+        GeminiProvider.sanitize_tool_name("mcp-server-git__commit", used)
+        == "mcp_server_git__commit"
+    )
+
+    # Leading digit
+    assert GeminiProvider.sanitize_tool_name("123_tool", used) == "tool_123_tool"
+
+    # Truncation at 64 characters
+    long_name = "a" * 80
+    sanitized_long = GeminiProvider.sanitize_tool_name(long_name, used)
+    assert len(sanitized_long) == 64
+    assert sanitized_long == "a" * 64
+
+    # Empty name fallback
+    assert GeminiProvider.sanitize_tool_name("", used) == "unnamed_tool"
+
+
+def test_gemini_sanitize_tool_name_collisions() -> None:
+    """Verify collision resolution disambiguates differing tools with numeric suffixes."""
+    used: dict[str, str] = {}
+
+    # Two different tools that normalize to the same string
+    name1 = GeminiProvider.sanitize_tool_name("tool_a", used)
+    name2 = GeminiProvider.sanitize_tool_name("tool-a", used)
+    name3 = GeminiProvider.sanitize_tool_name("tool.a", used)
+
+    assert name1 == "tool_a"
+    assert name2 == "tool_a_2"
+    assert name3 == "tool_a_3"
+
+    # Re-sanitizing the exact same original name returns its already-assigned candidate
+    assert GeminiProvider.sanitize_tool_name("tool-a", used) == "tool_a_2"
+
+
+def test_gemini_provider_reverse_mapping() -> None:
+    """Verify GeminiProvider reverse-maps sanitized function names back to original MCP names."""
+    provider = GeminiProvider(api_key="mock_key")
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_call = MagicMock()
+    # Simulated API returns the sanitized name
+    mock_call.name = "mcp_server_git__commit"
+    mock_call.args = {"message": "fix"}
+    mock_response.function_calls = [mock_call]
+    mock_response.text = None
+    mock_response.usage_metadata.prompt_token_count = 30
+    mock_response.usage_metadata.candidates_token_count = 15
+
+    mock_client.models.generate_content.return_value = mock_response
+    provider._client = mock_client
+
+    tools: list[dict[str, Any]] = [
+        {"name": "mcp-server-git__commit", "parameters": {}},
+    ]
+
+    resp = provider.generate("Commit changes", tools=tools)
+    # Must be reverse-mapped to the original raw name with hyphen
+    assert resp.chosen_tool == "mcp-server-git__commit"
+    assert resp.chosen_args == {"message": "fix"}
+

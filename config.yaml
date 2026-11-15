@@ -42,9 +42,10 @@ mcp:
       - "mcp-server-time"
 
 # LLM Provider Configuration
+# VERIFIED: Active model selected from Google AI Studio dashboard on 2026-11-15
 model:
   provider: "gemini"
-  name: "gemini-2.0-flash"
+  name: "gemini-3.5-flash-lite"
   api_key_env: "GEMINI_API_KEY"
 
 # Synthetic Prompt Generation Settings (F2)
@@ -75,14 +76,13 @@ split:
   similarity_threshold: 0.8
   max_cluster_size: 5
 
-# Rate Limiting & Backoff (F11b) - Tuned for Gemini Free Tier
-# NOTE (Open Item #1): The 15 RPM / 1500 RPD values below are provisional placeholders.
-# Before finalizing F11b and F11d, verify current Google AI Studio documentation for
-# the chosen Gemini model's exact free-tier limits.
+# Rate Limiting & Backoff (F11b)
+# VERIFIED: Quotas confirmed from user's AI Studio dashboard on 2026-11-15:
+# 15 RPM, 500 RPD, 250K TPM.
 rate_limit:
   rpm: 15
-  rpd: 1500
-  tpm: 1000000
+  rpd: 500
+  tpm: 250000
   backoff_factor: 2.0
   max_backoff: 60.0
   max_retries: 5  # HTTP 429 exponential backoff retries (distinct from schema retry)

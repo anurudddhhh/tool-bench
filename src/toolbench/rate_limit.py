@@ -12,7 +12,15 @@ import logging
 import random
 import time
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import TypeVar
+
+try:
+    import zoneinfo
+
+    _PT_TZ: timezone | zoneinfo.ZoneInfo = zoneinfo.ZoneInfo("America/Los_Angeles")
+except Exception:  # Windows without tzdata package
+    _PT_TZ = timezone(timedelta(hours=-8))
 
 from toolbench.config import RateLimitConfig
 
@@ -45,7 +53,15 @@ class RateLimiter:
         self._request_timestamps: collections.deque[float] = collections.deque()
         # Daily request counter aligned to Midnight Pacific Time (Google AI Studio quota reset)
         self._daily_requests = 0
-        self._current_day_id = int((self._time() - 28800) // 86400)
+        self._current_day_id = self._get_pt_day(self._time())
+
+    @staticmethod
+    def _get_pt_day(ts: float) -> str:
+        """Return the date identifier (YYYY-MM-DD) in Pacific Time for a given timestamp."""
+        try:
+            return datetime.fromtimestamp(ts, tz=_PT_TZ).strftime("%Y-%m-%d")
+        except (OSError, OverflowError, ValueError):
+            return str(int((ts - 28800) // 86400))
 
     def acquire(self) -> float:
         """Wait if necessary to comply with RPM/RPD limits, then record the call.
@@ -55,8 +71,8 @@ class RateLimiter:
         """
         now = self._time()
 
-        # Reset daily window at Midnight Pacific Time (08:00 UTC)
-        current_pt_day = int((now - 28800) // 86400)
+        # Reset daily window at Midnight Pacific Time
+        current_pt_day = self._get_pt_day(now)
         if current_pt_day != self._current_day_id:
             self._daily_requests = 0
             self._current_day_id = current_pt_day

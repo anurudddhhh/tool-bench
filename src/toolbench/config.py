@@ -42,7 +42,7 @@ class ModelConfig(BaseModel):
         description="Provider identifier ('gemini' or 'mock')",
     )
     name: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-3.5-flash-lite",
         description="Exact model identifier used across all A/B/C/D evaluation setups",
     )
     api_key_env: str = Field(
@@ -143,8 +143,8 @@ class RateLimitConfig(BaseModel):
     """Rate limiting and exponential backoff configuration (F11b)."""
 
     rpm: int = Field(default=15, ge=1, description="Maximum requests per minute")
-    rpd: int = Field(default=1500, ge=1, description="Maximum requests per day")
-    tpm: int = Field(default=1000000, ge=1, description="Maximum tokens per minute")
+    rpd: int = Field(default=500, ge=1, description="Maximum requests per day")
+    tpm: int = Field(default=250000, ge=1, description="Maximum tokens per minute")
     backoff_factor: float = Field(default=2.0, ge=1.0, description="Exponential backoff multiplier")
     max_backoff: float = Field(default=60.0, ge=1.0, description="Maximum backoff wait in seconds")
     max_retries: int = Field(
