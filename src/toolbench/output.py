@@ -62,17 +62,23 @@ def render_tools_table(
     table.add_column("Params", justify="right", style="magenta")
 
     for tool in tools:
-        raw_name = str(tool.get("name", ""))
+        if isinstance(tool, dict):
+            raw_name = str(tool.get("name", ""))
+            desc = str(tool.get("description", ""))
+            schema = tool.get("parameters") or tool.get("input_schema") or {}
+        else:
+            raw_name = str(getattr(tool, "name", ""))
+            desc = str(getattr(tool, "description", ""))
+            schema = getattr(tool, "input_schema", {}) or {}
+
         if "__" in raw_name:
             server, name = raw_name.split("__", 1)
         else:
             server, name = "-", raw_name
 
-        desc = str(tool.get("description", ""))
         if len(desc) > 80:
             desc = desc[:77] + "..."
 
-        schema = tool.get("parameters") or tool.get("input_schema") or {}
         properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
         param_count = str(len(properties))
 
