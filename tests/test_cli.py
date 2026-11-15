@@ -24,6 +24,7 @@ def test_cli_help():
     assert "review" in result.stdout
     assert "split" in result.stdout
     assert "select-k" in result.stdout
+    assert "compare-retrieval" in result.stdout
     assert "rewrite-descriptions" in result.stdout
     assert "run" in result.stdout
     assert "compare" in result.stdout
@@ -146,3 +147,28 @@ def test_cli_rewrite_descriptions_command(tmp_path: Path):
         assert result.exit_code == 0
         assert out_file.exists()
         assert "Rewrote descriptions for 1 tools" in result.stdout
+
+
+def test_cli_compare_retrieval_command(tmp_path: Path):
+    dev_prompts = [
+        {"prompt_id": "1", "prompt_text": "read file", "expected_tool": "fs_read"}
+    ]
+    dev_file = tmp_path / "dev_prompts.json"
+    dev_file.write_text(json.dumps(dev_prompts), encoding="utf-8")
+
+    sample_tools = [
+        ToolInfo(
+            name="fs_read",
+            description="Reads files",
+            input_schema={"type": "object", "properties": {}},
+        )
+    ]
+
+    with patch("toolbench.cli._load_tools_from_servers", return_value=sample_tools):
+        result = runner.invoke(
+            app,
+            ["compare-retrieval", "--data-dir", str(tmp_path), "--k", "1", "--methods", "bm25"],
+        )
+        assert result.exit_code == 0
+        assert "Retrieval Method Comparison" in result.stdout
+

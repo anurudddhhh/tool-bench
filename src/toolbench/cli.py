@@ -46,7 +46,12 @@ from toolbench.report import (
     render_comparison_tables,
 )
 from toolbench.results_schema import validate_results_file
-from toolbench.retrieve import ToolRetriever, calibrate_k, render_calibration_table
+from toolbench.retrieve import (
+    ToolRetriever,
+    calibrate_k,
+    compare_retrieval_methods,
+    render_calibration_table,
+)
 from toolbench.rewrite import load_rewritten_descriptions, rewrite_descriptions
 from toolbench.run import run_benchmark
 
@@ -278,6 +283,56 @@ def select_k_command(
     table = render_calibration_table(recall_curve, selected_k, cfg.retrieval.target_recall)
     console.print(table)
     print_success(f"Calibrated optimal retrieval parameter: k={selected_k}")
+
+
+@app.command("compare-retrieval")
+def compare_retrieval_command(
+    config_path: Annotated[
+        str | None,
+        typer.Option("--config", "-c", help="Path to config.yaml"),
+    ] = None,
+    data_dir: Annotated[
+        str,
+        typer.Option("--data-dir", "-d", help="Directory containing dev_prompts.json"),
+    ] = "data",
+    methods: Annotated[
+        str,
+        typer.Option(
+            "--methods",
+            "-m",
+            help="Comma-separated retrieval methods (dense,bm25,hybrid,cross_encoder)",
+        ),
+    ] = "dense,bm25,hybrid",
+    k_values: Annotated[
+        str | None,
+        typer.Option("--k", help="Comma-separated candidate k values (e.g. '5,10,15,20')"),
+    ] = None,
+) -> None:
+    """Compare Recall@k across multiple retrieval paradigms on dev dataset (D1)."""
+    cfg = load_config(config_path)
+    dev_p = Path(data_dir) / "dev_prompts.json"
+    if not dev_p.exists():
+        print_error(f"Dev dataset not found at '{dev_p}'. Run 'toolbench split' first.")
+        raise typer.Exit(code=1)
+
+    dev_prompts = json.loads(dev_p.read_text(encoding="utf-8"))
+    tools = _load_tools_from_servers(cfg)
+    embed_helper = get_default_embedding_helper()
+
+    method_list = [m.strip() for m in methods.split(",") if m.strip()]
+    if k_values:
+        candidates = [int(k.strip()) for k in k_values.split(",") if k.strip().isdigit()]
+    else:
+        candidates = cfg.retrieval.candidate_k
+
+    compare_retrieval_methods(
+        prompts=dev_prompts,
+        tools=tools,
+        candidate_k_values=candidates,
+        methods=method_list,
+        embedding_helper=embed_helper,
+        show_table=True,
+    )
 
 
 @app.command("rewrite-descriptions")

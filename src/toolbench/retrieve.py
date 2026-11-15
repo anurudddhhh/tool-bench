@@ -1,13 +1,14 @@
-"""Embedding-based tool retrieval and dev-set k calibration (F5).
+"""Embedding and multi-method tool retrieval and calibration (F5 & D1).
 
-Provides local semantic tool retrieval using SentenceTransformers, deterministic
-top-k ranking with alphabetical tie-breaking, and dev-set k-sweep calibration
-to reach target recall@k thresholds.
+Provides local semantic tool retrieval using SentenceTransformers, BM25 lexical
+matching, Reciprocal Rank Fusion (RRF) hybrid retrieval, and cross-encoder
+reranking, along with dev-set calibration and method comparison.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from rich.table import Table
@@ -124,6 +125,238 @@ class ToolRetriever:
         return hits / len(prompts)
 
 
+# Alias for explicit naming in multi-method benchmarks
+EmbeddingToolRetriever = ToolRetriever
+
+
+class BM25ToolRetriever:
+    """Selects top-k tools using BM25 lexical matching."""
+
+    def __init__(
+        self,
+        tools: list[ToolInfo],
+        descriptions: dict[str, str] | None = None,
+    ) -> None:
+        """Initialize BM25 retriever with tokenized tool descriptions.
+
+        Args:
+            tools: Full list of ToolInfo instances to index.
+            descriptions: Optional custom tool description mapping {tool_name: description}.
+        """
+        try:
+            from rank_bm25 import BM25Okapi
+        except ImportError as exc:
+            raise ImportError("rank-bm25 is required for BM25ToolRetriever.") from exc
+
+        self.tools = list(tools)
+        self.descriptions = descriptions or {}
+
+        corpus_texts: list[str] = []
+        for t in self.tools:
+            custom_desc = self.descriptions.get(t.name)
+            desc_to_use = custom_desc if custom_desc is not None else t.description
+            text = f"{t.name} {desc_to_use}".strip()
+            corpus_texts.append(text)
+
+        self._tokenized_corpus = [self._tokenize(text) for text in corpus_texts]
+        self._bm25 = BM25Okapi(self._tokenized_corpus) if self._tokenized_corpus else None
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """Simple lowercase alphanumeric word tokenizer."""
+        return re.findall(r"\w+", text.lower())
+
+    def retrieve_top_k(self, query: str, k: int) -> list[ToolInfo]:
+        """Retrieve top-k tools scored by BM25 with deterministic alphabetical tie-breaking."""
+        if not self.tools or k <= 0:
+            return []
+
+        if len(self.tools) <= k:
+            return list(self.tools)
+
+        if not self._bm25:
+            return list(self.tools[:k])
+
+        tokenized_query = self._tokenize(query)
+        scores = self._bm25.get_scores(tokenized_query)
+
+        ranked_indices = sorted(
+            range(len(self.tools)),
+            key=lambda idx: (-float(scores[idx]), self.tools[idx].name),
+        )
+
+        return [self.tools[i] for i in ranked_indices[:k]]
+
+    def compute_recall_at_k(self, prompts: list[dict[str, Any]], k: int) -> float:
+        """Compute recall@k: fraction of prompts where expected tool is in top-k."""
+        if not prompts:
+            return 0.0
+
+        hits = 0
+        for p in prompts:
+            query = str(p.get("prompt_text", ""))
+            expected = str(p.get("expected_tool", ""))
+
+            top_tools = self.retrieve_top_k(query, k=k)
+            top_names = {t.name for t in top_tools}
+
+            if expected in top_names:
+                hits += 1
+
+        return hits / len(prompts)
+
+
+class HybridToolRetriever:
+    """Combines Dense Embedding and BM25 Lexical retrieval using Reciprocal Rank Fusion (RRF)."""
+
+    def __init__(
+        self,
+        tools: list[ToolInfo],
+        embedding_helper: EmbeddingHelper | None = None,
+        descriptions: dict[str, str] | None = None,
+        rrf_constant: int = 60,
+    ) -> None:
+        """Initialize hybrid retriever combining dense and BM25 retrievers.
+
+        Args:
+            tools: Full list of ToolInfo instances to index.
+            embedding_helper: EmbeddingHelper instance for dense ranking.
+            descriptions: Optional custom tool description mapping {tool_name: description}.
+            rrf_constant: Smoothing constant for RRF (standard default: 60).
+        """
+        self.tools = list(tools)
+        self.rrf_constant = rrf_constant
+        self.dense_retriever = ToolRetriever(
+            tools,
+            embedding_helper=embedding_helper,
+            descriptions=descriptions,
+        )
+        self.bm25_retriever = BM25ToolRetriever(tools, descriptions=descriptions)
+
+    def retrieve_top_k(self, query: str, k: int) -> list[ToolInfo]:
+        """Retrieve top-k tools ranked by Reciprocal Rank Fusion (RRF)."""
+        if not self.tools or k <= 0:
+            return []
+
+        if len(self.tools) <= k:
+            return list(self.tools)
+
+        dense_ranked = self.dense_retriever.retrieve_top_k(query, k=len(self.tools))
+        bm25_ranked = self.bm25_retriever.retrieve_top_k(query, k=len(self.tools))
+
+        dense_rank_map = {t.name: rank for rank, t in enumerate(dense_ranked, start=1)}
+        bm25_rank_map = {t.name: rank for rank, t in enumerate(bm25_ranked, start=1)}
+
+        rrf_scores: dict[str, float] = {}
+        for t in self.tools:
+            r_dense = dense_rank_map.get(t.name, len(self.tools) + 1)
+            r_bm25 = bm25_rank_map.get(t.name, len(self.tools) + 1)
+            score = (1.0 / (self.rrf_constant + r_dense)) + (1.0 / (self.rrf_constant + r_bm25))
+            rrf_scores[t.name] = score
+
+        ranked_tools = sorted(
+            self.tools,
+            key=lambda t: (-rrf_scores[t.name], t.name),
+        )
+
+        return ranked_tools[:k]
+
+    def compute_recall_at_k(self, prompts: list[dict[str, Any]], k: int) -> float:
+        """Compute recall@k: fraction of prompts where expected tool is in top-k."""
+        if not prompts:
+            return 0.0
+
+        hits = 0
+        for p in prompts:
+            query = str(p.get("prompt_text", ""))
+            expected = str(p.get("expected_tool", ""))
+
+            top_tools = self.retrieve_top_k(query, k=k)
+            top_names = {t.name for t in top_tools}
+
+            if expected in top_names:
+                hits += 1
+
+        return hits / len(prompts)
+
+
+class CrossEncoderToolRetriever:
+    """Reranks tools using a Cross-Encoder model scoring query-tool pairs."""
+
+    def __init__(
+        self,
+        tools: list[ToolInfo],
+        model_name: str = "cross-encoder/ms-marco-TinyBERT-L-2-v2",
+        descriptions: dict[str, str] | None = None,
+        scorer: Any | None = None,
+    ) -> None:
+        """Initialize cross-encoder reranker.
+
+        Args:
+            tools: Full list of ToolInfo instances to index.
+            model_name: HuggingFace cross-encoder model identifier.
+            descriptions: Optional custom tool description mapping.
+            scorer: Optional pre-loaded model or callable mock accepting query-text pairs.
+        """
+        self.tools = list(tools)
+        self.model_name = model_name
+        self.descriptions = descriptions or {}
+        self._scorer = scorer
+        self._model: Any | None = None
+
+    def _get_scorer(self) -> Any:
+        if self._scorer is not None:
+            return self._scorer
+        if self._model is None:
+            from sentence_transformers import CrossEncoder
+
+            self._model = CrossEncoder(self.model_name)
+        return self._model
+
+    def retrieve_top_k(self, query: str, k: int) -> list[ToolInfo]:
+        """Retrieve top-k tools scored by cross-encoder with deterministic tie-breaking."""
+        if not self.tools or k <= 0:
+            return []
+
+        if len(self.tools) <= k:
+            return list(self.tools)
+
+        scorer = self._get_scorer()
+        pairs: list[list[str]] = []
+        for t in self.tools:
+            custom_desc = self.descriptions.get(t.name)
+            desc_to_use = custom_desc if custom_desc is not None else t.description
+            text = f"{t.name}: {desc_to_use}".strip()
+            pairs.append([query, text])
+
+        scores = scorer.predict(pairs)
+
+        ranked_indices = sorted(
+            range(len(self.tools)),
+            key=lambda idx: (-float(scores[idx]), self.tools[idx].name),
+        )
+
+        return [self.tools[i] for i in ranked_indices[:k]]
+
+    def compute_recall_at_k(self, prompts: list[dict[str, Any]], k: int) -> float:
+        """Compute recall@k: fraction of prompts where expected tool is in top-k."""
+        if not prompts:
+            return 0.0
+
+        hits = 0
+        for p in prompts:
+            query = str(p.get("prompt_text", ""))
+            expected = str(p.get("expected_tool", ""))
+
+            top_tools = self.retrieve_top_k(query, k=k)
+            top_names = {t.name for t in top_tools}
+
+            if expected in top_names:
+                hits += 1
+
+        return hits / len(prompts)
+
+
 def render_calibration_table(
     recall_curve: dict[int, float],
     selected_k: int,
@@ -151,6 +384,34 @@ def render_calibration_table(
             rec_str = rec_pct
 
         table.add_row(k_str, rec_str, status)
+
+    return table
+
+
+def render_method_comparison_table(
+    method_curves: dict[str, dict[int, float]],
+    candidate_k_values: list[int],
+) -> Table:
+    """Format comparative recall@k curves across retrieval methods into a Rich Table."""
+    table = Table(title="Retrieval Method Comparison (Dev Set Recall@k)", show_header=True)
+    table.add_column("Retrieval Method", style="bold cyan")
+
+    sorted_k = sorted(candidate_k_values)
+    for k in sorted_k:
+        table.add_column(f"Recall@{k}", justify="right")
+
+    for method, curve in sorted(method_curves.items()):
+        row = [method.upper()]
+        for k in sorted_k:
+            rec = curve.get(k, 0.0)
+            rec_pct = f"{rec * 100.0:.1f}%"
+            if rec >= 0.95:
+                row.append(f"[green]{rec_pct}[/]")
+            elif rec >= 0.80:
+                row.append(f"[yellow]{rec_pct}[/]")
+            else:
+                row.append(f"[red]{rec_pct}[/]")
+        table.add_row(*row)
 
     return table
 
@@ -227,3 +488,75 @@ def calibrate_k(
         )
 
     return selected_k, curve
+
+
+def compare_retrieval_methods(
+    prompts: list[dict[str, Any]],
+    tools: list[ToolInfo],
+    candidate_k_values: list[int] | None = None,
+    methods: list[str] | None = None,
+    embedding_helper: EmbeddingHelper | None = None,
+    cross_encoder_scorer: Any | None = None,
+    show_table: bool = True,
+) -> dict[str, Any]:
+    """Compare Recall@k across multiple retrieval methods (Dense, BM25, Hybrid, Cross-Encoder).
+
+    Args:
+        prompts: Curated dev-split prompts.
+        tools: Full list of discovered tools.
+        candidate_k_values: List of candidate k values (default [5, 10, 15, 20]).
+        methods: List of retrieval methods to compare (default ["dense", "bm25", "hybrid"]).
+        embedding_helper: Optional custom EmbeddingHelper for dense & hybrid retrieval.
+        cross_encoder_scorer: Optional scorer or mock model for cross-encoder reranking.
+        show_table: Whether to render the comparison table to the console.
+
+    Returns:
+        Dictionary mapping method names to {k: recall} dicts and list of evaluated k values.
+    """
+    candidates = candidate_k_values or [5, 10, 15, 20]
+    valid_candidates = sorted({k for k in candidates if k > 0})
+    if not valid_candidates:
+        valid_candidates = [min(5, len(tools))]
+
+    active_methods = methods or ["dense", "bm25", "hybrid"]
+    retrievers: dict[str, Any] = {}
+
+    for method in active_methods:
+        method_lower = method.lower()
+        if method_lower in ("dense", "embedding"):
+            retrievers["dense"] = ToolRetriever(tools=tools, embedding_helper=embedding_helper)
+        elif method_lower == "bm25":
+            retrievers["bm25"] = BM25ToolRetriever(tools=tools)
+        elif method_lower == "hybrid":
+            retrievers["hybrid"] = HybridToolRetriever(
+                tools=tools,
+                embedding_helper=embedding_helper,
+            )
+        elif method_lower in ("cross_encoder", "cross-encoder"):
+            retrievers["cross_encoder"] = CrossEncoderToolRetriever(
+                tools=tools,
+                scorer=cross_encoder_scorer,
+            )
+        else:
+            logger.warning("Unrecognized retrieval method: %s (skipping)", method)
+
+    method_curves: dict[str, dict[int, float]] = {}
+
+    for name, retriever in retrievers.items():
+        curve: dict[int, float] = {}
+        for k in valid_candidates:
+            recall = retriever.compute_recall_at_k(prompts, k=k)
+            curve[k] = recall
+        method_curves[name] = curve
+
+    if show_table:
+        table = render_method_comparison_table(
+            method_curves=method_curves,
+            candidate_k_values=valid_candidates,
+        )
+        console.print(table)
+
+    return {
+        "method_curves": method_curves,
+        "k_values": valid_candidates,
+    }
