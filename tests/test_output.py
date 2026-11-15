@@ -5,6 +5,8 @@ from typing import Any
 from rich.console import Console
 
 from toolbench.output import (
+    RunMetrics,
+    compute_run_metrics,
     create_progress,
     print_error,
     print_info,
@@ -128,6 +130,14 @@ def test_render_run_summary() -> None:
     assert "2/4" in output
     # Avg latency = (10 + 200 + 300 + 50) / 4 = 140.0 ms
     assert "140.0 ms" in output
+
+    # Also verify direct RunMetrics rendering
+    metrics = compute_run_metrics(results)
+    assert isinstance(metrics, RunMetrics)
+    assert metrics.total_prompts == 4
+    assert metrics.tool_accuracy_pct == 75.0
+    table_direct = render_run_summary(metrics, title="Direct Metrics Table")
+    assert table_direct.title == "Direct Metrics Table"
 
 
 def test_render_run_summary_empty() -> None:

@@ -43,9 +43,9 @@ class RateLimiter:
 
         # Sliding window of request timestamps in the last 60 seconds
         self._request_timestamps: collections.deque[float] = collections.deque()
-        # Daily request counter
+        # Daily request counter aligned to Midnight Pacific Time (Google AI Studio quota reset)
         self._daily_requests = 0
-        self._day_start = self._time()
+        self._current_day_id = int((self._time() - 28800) // 86400)
 
     def acquire(self) -> float:
         """Wait if necessary to comply with RPM/RPD limits, then record the call.
@@ -55,10 +55,11 @@ class RateLimiter:
         """
         now = self._time()
 
-        # Reset daily window if 24 hours have elapsed
-        if now - self._day_start >= 86400:
+        # Reset daily window at Midnight Pacific Time (08:00 UTC)
+        current_pt_day = int((now - 28800) // 86400)
+        if current_pt_day != self._current_day_id:
             self._daily_requests = 0
-            self._day_start = now
+            self._current_day_id = current_pt_day
 
         # Check RPD limit
         if self._daily_requests >= self.config.rpd:

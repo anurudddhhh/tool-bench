@@ -42,7 +42,7 @@ class ModelConfig(BaseModel):
         description="Provider identifier ('gemini' or 'mock')",
     )
     name: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-2.0-flash",
         description="Exact model identifier used across all A/B/C/D evaluation setups",
     )
     api_key_env: str = Field(

@@ -19,7 +19,7 @@ def test_default_config() -> None:
     """Verify that ToolbenchConfig initializes with valid default parameters."""
     cfg = ToolbenchConfig()
     assert cfg.model.provider == "gemini"
-    assert cfg.model.name == "gemini-2.5-flash"
+    assert cfg.model.name == "gemini-2.0-flash"
     assert cfg.generation.count == 160
     assert cfg.generation.temperature == 0.7
     assert cfg.evaluation.temperature == 0.0

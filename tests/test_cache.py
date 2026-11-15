@@ -12,7 +12,7 @@ def test_compute_key_deterministic() -> None:
     tools = [
         {"name": "create_directory", "description": "Creates a directory", "parameters": {}},
     ]
-    model = "gemini-2.5-flash"
+    model = "gemini-2.0-flash"
     temp = 0.0
 
     key1 = DiskCache.compute_key(prompt, tools, model, temp)
@@ -22,24 +22,47 @@ def test_compute_key_deterministic() -> None:
     assert len(key1) == 64  # SHA-256 hex length
 
 
-def test_compute_key_tool_order_invariant() -> None:
-    """Verify that permuting tool order produces the identical cache key."""
+def test_compute_key_tool_ordering() -> None:
+    """Verify tool ordering behavior for sorted vs rank-order presentation."""
     tool_a: dict[str, Any] = {"name": "read_file", "description": "Reads a file"}
     tool_b: dict[str, Any] = {"name": "write_file", "description": "Writes a file"}
 
-    key_ab = DiskCache.compute_key("test prompt", [tool_a, tool_b], "gemini-2.5-flash", 0.0)
-    key_ba = DiskCache.compute_key("test prompt", [tool_b, tool_a], "gemini-2.5-flash", 0.0)
+    # When sort_tools=True (Baseline Setups A & B), order is normalized
+    key_sorted_1 = DiskCache.compute_key(
+        "test", [tool_a, tool_b], "gemini-2.0-flash", 0.0, sort_tools=True
+    )
+    key_sorted_2 = DiskCache.compute_key(
+        "test", [tool_b, tool_a], "gemini-2.0-flash", 0.0, sort_tools=True
+    )
+    assert key_sorted_1 == key_sorted_2
 
-    assert key_ab == key_ba
+    # When sort_tools=False (Retrieval Setups C & D), rank order is preserved
+    key_rank_1 = DiskCache.compute_key(
+        "test", [tool_a, tool_b], "gemini-2.0-flash", 0.0, sort_tools=False
+    )
+    key_rank_2 = DiskCache.compute_key(
+        "test", [tool_b, tool_a], "gemini-2.0-flash", 0.0, sort_tools=False
+    )
+    assert key_rank_1 != key_rank_2
+
+
+def test_compute_key_system_prompt_sensitivity() -> None:
+    """Verify system prompt is factored into cache key computation."""
+    tools = [{"name": "read_file"}]
+    key_no_sys = DiskCache.compute_key("prompt", tools, "gemini-2.0-flash", 0.0)
+    key_with_sys = DiskCache.compute_key(
+        "prompt", tools, "gemini-2.0-flash", 0.0, system_prompt="You are a helpful assistant"
+    )
+    assert key_no_sys != key_with_sys
 
 
 def test_compute_key_sensitivity() -> None:
     """Verify that any modification to payload fields alters the key."""
     base_tools = [{"name": "read_file", "description": "Reads a file"}]
-    base_key = DiskCache.compute_key("Prompt A", base_tools, "gemini-2.5-flash", 0.0)
+    base_key = DiskCache.compute_key("Prompt A", base_tools, "gemini-2.0-flash", 0.0)
 
     # Different prompt
-    assert DiskCache.compute_key("Prompt B", base_tools, "gemini-2.5-flash", 0.0) != base_key
+    assert DiskCache.compute_key("Prompt B", base_tools, "gemini-2.0-flash", 0.0) != base_key
     # Different model
     assert DiskCache.compute_key("Prompt A", base_tools, "gemini-1.5-pro", 0.0) != base_key
     # Different temperature

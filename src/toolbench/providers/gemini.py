@@ -26,7 +26,7 @@ class GeminiProvider(ProviderBase):
 
     def __init__(
         self,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-2.0-flash",
         api_key: str | None = None,
         api_key_env: str = "GEMINI_API_KEY",
         rate_limiter: RateLimiter | None = None,

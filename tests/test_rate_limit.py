@@ -68,6 +68,12 @@ def test_rpd_limit_exceeded() -> None:
         limiter.acquire()
     assert "Daily request quota exceeded" in str(exc_info.value)
 
+    # Advance clock by 24 hours (crosses Midnight PT)
+    clock.current_time += 86400.0
+    # Must now succeed because daily count was reset
+    slept = limiter.acquire()
+    assert slept == 0.0
+
 
 def test_compute_backoff_bounds() -> None:
     """Verify exponential backoff values grow and stay within jitter/cap bounds."""

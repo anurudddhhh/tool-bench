@@ -34,6 +34,7 @@ requirement.md
 
 # Toolbench Caches & Temporary Run Data
 .cache/
+scratch/
 data/*
 !data/.gitkeep
 results/*

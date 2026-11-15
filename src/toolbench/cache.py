@@ -32,34 +32,43 @@ class DiskCache:
 
     @staticmethod
     def compute_key(
-        prompt: str,
+        prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         model: str,
         temperature: float,
+        system_prompt: str | None = None,
+        sort_tools: bool = False,
     ) -> str:
         """Compute a deterministic SHA-256 hash for an LLM invocation payload.
 
-        Tools are sorted alphabetically by their 'name' key and serialized with
-        sorted keys to guarantee invariant hashing regardless of tool list ordering.
+        Preserves the exact presentation order of tools (or sorts if sort_tools=True),
+        and hashes system_prompt, messages, tools, model, and temperature.
 
         Args:
-            prompt: User prompt text or serialized conversation prompt.
-            tools: List of exposed tool definition dictionaries.
+            prompt: User prompt text or structured list of message dictionaries.
+            tools: List of exposed tool definition dictionaries in exact presentation order.
             model: Target model identifier string.
             temperature: Sampling temperature float.
+            system_prompt: Optional system instruction string.
+            sort_tools: If True, sorts tools by name. If False, preserves presentation order.
 
         Returns:
             64-character hexadecimal SHA-256 digest string.
         """
-        # Sort tools deterministically by name if 'name' is present
-        normalized_tools = sorted(
-            tools,
-            key=lambda t: str(t.get("name", "")),
-        )
+        if isinstance(prompt, str):
+            messages = [{"role": "user", "content": prompt}]
+        else:
+            messages = prompt
+
+        if sort_tools:
+            tools_payload = sorted(tools, key=lambda t: str(t.get("name", "")))
+        else:
+            tools_payload = tools
 
         canonical_payload = {
-            "prompt": prompt,
-            "tools": normalized_tools,
+            "system_prompt": system_prompt or "",
+            "messages": messages,
+            "tools": tools_payload,
             "model": model,
             "temperature": round(float(temperature), 4),
         }
