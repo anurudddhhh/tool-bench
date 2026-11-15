@@ -541,5 +541,25 @@ def validate_command(
         raise typer.Exit(code=1) from err
 
 
+@app.command("proxy")
+def proxy_command(
+    config_path: Annotated[
+        str | None,
+        typer.Option("--config", "-c", help="Path to config.yaml"),
+    ] = None,
+) -> None:
+    """Launch the standalone Retrieval Proxy MCP Server over stdio (D3)."""
+    from toolbench.proxy import create_proxy_server
+
+    cfg = load_config(config_path)
+    tools = _load_tools_from_servers(cfg)
+    embed_helper = get_default_embedding_helper()
+    retriever = ToolRetriever(tools=tools, embedding_helper=embed_helper)
+
+    server = create_proxy_server(tools=tools, retriever=retriever)
+    print_info(f"Starting Toolbench Retrieval Proxy for {len(tools)} tools on stdio...")
+    asyncio.run(server.run_stdio_async())
+
+
 if __name__ == "__main__":
     app()

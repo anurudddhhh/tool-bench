@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -30,6 +30,7 @@ def test_cli_help():
     assert "compare" in result.stdout
     assert "analyze-failures" in result.stdout
     assert "validate" in result.stdout
+    assert "proxy" in result.stdout
 
 
 def test_cli_validate_command_success(tmp_path: Path):
@@ -171,4 +172,29 @@ def test_cli_compare_retrieval_command(tmp_path: Path):
         )
         assert result.exit_code == 0
         assert "Retrieval Method Comparison" in result.stdout
+
+
+def test_cli_proxy_command():
+    sample_tools = [
+        ToolInfo(
+            name="fs_read",
+            description="Reads files",
+            input_schema={"type": "object", "properties": {}},
+        )
+    ]
+    with (
+        patch("toolbench.cli._load_tools_from_servers", return_value=sample_tools),
+        patch("toolbench.cli.get_default_embedding_helper"),
+        patch("toolbench.retrieve.ToolRetriever"),
+        patch("toolbench.proxy.create_proxy_server") as mock_create,
+    ):
+        mock_server = MagicMock()
+        mock_server.run_stdio_async = AsyncMock()
+        mock_create.return_value = mock_server
+
+        result = runner.invoke(app, ["proxy"])
+        assert result.exit_code == 0
+        assert "Starting Toolbench Retrieval Proxy" in result.stdout
+        assert mock_server.run_stdio_async.called
+
 
