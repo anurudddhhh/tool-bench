@@ -32,6 +32,8 @@ def test_cli_help():
     assert "validate" in result.stdout
     assert "proxy" in result.stdout
     assert "tui" in result.stdout
+    assert "dashboard" in result.stdout
+    assert "clear-cache" in result.stdout
 
 
 def test_cli_validate_command_success(tmp_path: Path):
@@ -201,3 +203,53 @@ def test_cli_tui_command_non_interactive(tmp_path: Path):
     result = runner.invoke(app, ["tui", "--results-dir", str(tmp_path), "--non-interactive"])
     assert result.exit_code == 0
     assert "TOOLBENCH" in result.stdout
+
+
+def test_cli_dashboard_command(tmp_path: Path):
+    res_dir = tmp_path / "results"
+    res_dir.mkdir()
+    d_dir = tmp_path / "dashboard"
+    d_dir.mkdir()
+
+    # Create dummy setup A result
+    res_payload = {
+        "setup": "A",
+        "split": "heldout",
+        "run_id": "test-run-id",
+        "timestamp": "20261115_120000",
+        "model": "mock-model",
+        "total_prompts": 1,
+        "tool_accuracy": 1.0,
+        "strict_match_rate": 1.0,
+        "pre_retry_validity_rate": 1.0,
+        "post_retry_validity_rate": 1.0,
+        "metrics": {
+            "tool_accuracy": 1.0,
+            "args_valid_pre_retry_rate": 1.0,
+            "args_valid_post_retry_rate": 1.0,
+            "args_strict_match_rate": 1.0,
+            "recovery_rate": 0.0,
+            "args_match_score_mean": 1.0,
+            "total_prompts": 1,
+            "avg_latency_ms": 10.0,
+            "cache_hit_rate": 0.0,
+        },
+        "results": [],
+    }
+    (res_dir / "A_heldout_20261115.json").write_text(json.dumps(res_payload), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["dashboard", "--results-dir", str(res_dir), "--dashboard-dir", str(d_dir)],
+    )
+    assert result.exit_code == 0
+    assert "Validated and synced results" in result.stdout
+    assert (d_dir / "results.json").exists()
+
+
+def test_cli_clear_cache_command():
+    with patch("toolbench.cache.DiskResponseCache.clear") as mock_clear:
+        result = runner.invoke(app, ["clear-cache"])
+        assert result.exit_code == 0
+        assert "Cleared LLM response disk cache" in result.stdout
+        assert mock_clear.called

@@ -76,6 +76,7 @@ class BenchmarkRunResult(BaseModel):
     records: list[PromptResultRecord] = Field(default_factory=list)
     results: list[PromptResultRecord] = Field(default_factory=list)
     metrics: dict[str, Any] = Field(default_factory=dict)
+    unverified: bool = False
     output_file: str | None = None
 
 
@@ -192,6 +193,8 @@ def run_benchmark(
     allow_unverified: bool = False,
     acknowledge_ceiling: bool = False,
     tool_selector: Any | None = None,
+    no_cache: bool = False,
+    clear_cache: bool = False,
 ) -> BenchmarkRunResult:
     """Execute evaluation across prompts in the designated split and setup.
 
@@ -211,6 +214,17 @@ def run_benchmark(
         BenchmarkRunResult instance with summary and per-prompt records.
     """
     cfg = config or ToolbenchConfig()
+
+    if clear_cache:
+        from toolbench.cache import DiskResponseCache
+
+        cache_p = Path(getattr(cfg.paths, "cache_dir", ".cache/toolbench")) / "responses"
+        DiskResponseCache(cache_dir=cache_p).clear()
+
+    orig_cache = getattr(provider, "cache", None)
+    if no_cache and hasattr(provider, "cache"):
+        provider.cache = None
+
     prompts = load_prompts_for_split(
         split=split,
         data_dir=data_dir,
@@ -397,12 +411,16 @@ def run_benchmark(
     res_dir = Path(results_dir)
     res_dir.mkdir(parents=True, exist_ok=True)
     out_file = res_dir / f"{setup}_{split}_{timestamp}.json"
+    run_id = f"{timestamp}_{setup}_{uuid.uuid4().hex[:8]}"
+    run_folder = res_dir / run_id
+    run_folder.mkdir(parents=True, exist_ok=True)
 
     run_result = BenchmarkRunResult(
         setup=setup,
         split=split,
         timestamp=timestamp,
         model=provider.model_name,
+        run_id=run_id,
         heldout_hash=heldout_hash_val,
         evaluation_temperature=cfg.evaluation.temperature,
         total_prompts=total_count,
@@ -413,11 +431,34 @@ def run_benchmark(
         records=records,
         results=records,
         metrics=metrics_payload,
+        unverified=allow_unverified,
         output_file=str(out_file),
     )
 
-    out_file.write_text(run_result.model_dump_json(indent=2), encoding="utf-8")
-    logger.info("Saved benchmark evaluation results to '%s'.", out_file)
+    json_content = run_result.model_dump_json(indent=2)
+    out_file.write_text(json_content, encoding="utf-8")
+    (run_folder / "results.json").write_text(json_content, encoding="utf-8")
+    (run_folder / "summary.json").write_text(
+        json.dumps(metrics_payload, indent=2), encoding="utf-8"
+    )
+
+    # Save sanitized config snapshot
+    try:
+        import yaml
+
+        safe_cfg = cfg.model_dump()
+        if "model" in safe_cfg and "api_key" in safe_cfg["model"]:
+            safe_cfg["model"]["api_key"] = None
+        (run_folder / "config_snapshot.yaml").write_text(
+            yaml.dump(safe_cfg, sort_keys=False), encoding="utf-8"
+        )
+    except Exception as err:
+        logger.warning("Could not write config snapshot: %s", err)
+
+    if no_cache and orig_cache is not None and hasattr(provider, "cache"):
+        provider.cache = orig_cache
+
+    logger.info("Saved benchmark evaluation results to '%s' and '%s'.", out_file, run_folder)
     summary_table = render_run_summary(
         run_metrics,
         title=f"Benchmark Execution Summary ({setup} - {split})",

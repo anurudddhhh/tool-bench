@@ -275,3 +275,45 @@ def test_run_benchmark_setup_c_tool_selector(tmp_path: Path) -> None:
     exposed_names = [t["name"] for t in captured_exposed_tools[0]]
     # Only tool_1 was exposed!
     assert exposed_names == ["tool_1"]
+
+
+def test_run_benchmark_run_folder_and_snapshot(tmp_path: Path) -> None:
+    """Verify run folder is created with results.json, summary.json, and config_snapshot.yaml."""
+    t1 = ToolInfo(
+        name="tool_1",
+        description="Tool 1",
+        input_schema={"type": "object", "properties": {}},
+    )
+    data_dir = tmp_path / "data"
+    results_dir = tmp_path / "results"
+    prompts = [
+        {
+            "prompt_id": 1,
+            "prompt_text": "Do tool 1",
+            "expected_tool": "tool_1",
+            "expected_args": {},
+        }
+    ]
+    _write_json(data_dir / "raw_prompts.json", prompts)
+
+    mock_provider = MagicMock(spec=ProviderBase)
+    mock_provider.model_name = "test-model"
+    mock_provider.generate.return_value = ProviderResponse(chosen_tool="tool_1", chosen_args={})
+
+    cfg = ToolbenchConfig()
+    result = run_benchmark(
+        tools=[t1],
+        provider=mock_provider,
+        config=cfg,
+        split="pilot",
+        setup="A",
+        data_dir=data_dir,
+        results_dir=results_dir,
+        no_cache=True,
+    )
+
+    run_folder = results_dir / result.run_id
+    assert run_folder.exists()
+    assert (run_folder / "results.json").exists()
+    assert (run_folder / "summary.json").exists()
+    assert (run_folder / "config_snapshot.yaml").exists()

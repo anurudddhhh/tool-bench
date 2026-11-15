@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -55,6 +56,8 @@ from toolbench.retrieve import (
 from toolbench.rewrite import load_rewritten_descriptions, rewrite_descriptions
 from toolbench.run import run_benchmark
 
+logger = logging.getLogger(__name__)
+
 app = typer.Typer(
     name="toolbench",
     help="Scientific MCP tool selection benchmarking and evaluation CLI.",
@@ -75,8 +78,12 @@ def list_tools_command(
         str | None,
         typer.Option("--config", "-c", help="Path to config.yaml"),
     ] = None,
+    output_file: Annotated[
+        str,
+        typer.Option("--output", "-o", help="File to write tools JSON"),
+    ] = "data/tools.json",
 ) -> None:
-    """Connect to configured MCP servers, discover all tools, and display summary."""
+    """Connect to configured MCP servers, discover tools, save data/tools.json, and show summary."""
     cfg = load_config(config_path)
     print_info(f"Connecting to {len(cfg.mcp)} MCP server(s)...")
 
@@ -86,8 +93,30 @@ def list_tools_command(
         print_error(f"Failed to discover tools: {err}")
         raise typer.Exit(code=1) from err
 
+    # Save to data/tools.json
+    out_p = Path(output_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    out_p.write_text(json.dumps([t.model_dump() for t in tools], indent=2), encoding="utf-8")
+
+    # Server counts breakdown
+    server_counts: dict[str, int] = {}
+    for t in tools:
+        server = t.server_name or "unknown"
+        server_counts[server] = server_counts.get(server, 0) + 1
+
     table = render_tools_table(tools, title=f"Discovered Tools ({len(tools)} total)")
     console.print(table)
+
+    server_summary = ", ".join(f"{s}: {c}" for s, c in sorted(server_counts.items()))
+    print_info(f"Tools per server: {server_summary}")
+    print_success(f"Saved {len(tools)} tools to '{out_p}'.")
+
+    # Warn if total under 40
+    if len(tools) < 40:
+        print_warning(
+            f"Total discovered tools ({len(tools)}) is under 40. "
+            "Retrieval may experience a ceiling effect; consider adding another server."
+        )
 
 
 @app.command("generate")
@@ -103,6 +132,10 @@ def generate_command(
     use_mock: Annotated[
         bool,
         typer.Option("--mock", help="Use deterministic mock provider instead of Gemini"),
+    ] = False,
+    incremental: Annotated[
+        bool,
+        typer.Option("--incremental", help="Append new prompts to existing dataset"),
     ] = False,
 ) -> None:
     """Generate synthetic candidate prompts with anti-leakage validation (F2)."""
@@ -122,8 +155,24 @@ def generate_command(
 
     out_p = Path(output_file)
     out_p.parent.mkdir(parents=True, exist_ok=True)
-    out_p.write_text(json.dumps([r.model_dump() for r in records], indent=2), encoding="utf-8")
-    print_success(f"Generated {len(records)} raw candidate prompts saved to '{out_p}'.")
+
+    final_records = [r.model_dump() for r in records]
+    if incremental and out_p.exists():
+        try:
+            existing = json.loads(out_p.read_text(encoding="utf-8"))
+            existing_texts = {p.get("prompt_text") for p in existing}
+            added = [r for r in final_records if r.get("prompt_text") not in existing_texts]
+            final_records = existing + added
+            print_info(
+                f"Incremental mode: appended {len(added)} new prompts to {len(existing)} existing."
+            )
+        except Exception as err:
+            logger.warning("Could not read existing prompts for incremental merge: %s", err)
+
+    out_p.write_text(json.dumps(final_records, indent=2), encoding="utf-8")
+    print_success(
+        f"Generated raw candidate prompts saved ({len(final_records)} total) to '{out_p}'."
+    )
 
 
 @app.command("pilot")
@@ -282,7 +331,20 @@ def select_k_command(
 
     table = render_calibration_table(recall_curve, selected_k, cfg.retrieval.target_recall)
     console.print(table)
-    print_success(f"Calibrated optimal retrieval parameter: k={selected_k}")
+
+    # Save k_selection.json
+    k_sel_path = Path(data_dir) / "k_selection.json"
+    k_sel_data = {
+        "selected_k": selected_k,
+        "target_recall": cfg.retrieval.target_recall,
+        "recall_curve": {str(k): rec for k, rec in sorted(recall_curve.items())},
+        "total_tools": len(tools),
+        "dev_prompts_count": len(dev_prompts),
+    }
+    k_sel_path.write_text(json.dumps(k_sel_data, indent=2), encoding="utf-8")
+    print_success(
+        f"Calibrated optimal retrieval parameter: k={selected_k} (saved to '{k_sel_path}')"
+    )
 
 
 @app.command("compare-retrieval")
@@ -397,6 +459,18 @@ def run_command(
         bool,
         typer.Option("--acknowledge-ceiling", help="Bypass dev-set accuracy ceiling check"),
     ] = False,
+    allow_unverified: Annotated[
+        bool,
+        typer.Option("--allow-unverified", help="Permit scoring unverified prompts"),
+    ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help="Bypass response cache for generation and evaluation"),
+    ] = False,
+    clear_cache: Annotated[
+        bool,
+        typer.Option("--clear-cache", help="Clear response cache before running"),
+    ] = False,
 ) -> None:
     """Execute benchmark evaluation across prompts for a given setup and split (F4+F7)."""
     setup_clean = setup.upper().strip()
@@ -450,6 +524,9 @@ def run_command(
         data_dir=data_dir,
         results_dir=results_dir,
         acknowledge_ceiling=acknowledge_ceiling,
+        allow_unverified=allow_unverified,
+        no_cache=no_cache,
+        clear_cache=clear_cache,
         tool_selector=tool_selector_fn,
     )
 
@@ -523,6 +600,11 @@ def analyze_failures_command(
         style = "green" if cat == "pass" else "yellow"
         console.print(f"[{style}]{cat:30s}[/]: {count:4d} ({pct:5.1f}%)")
 
+    # Build and write failures.json alongside the result file
+    failures_out = p.parent / f"failures_{analysis['setup']}.json"
+    failures_out.write_text(json.dumps(analysis, indent=2), encoding="utf-8")
+    print_success(f"Saved failure analysis to '{failures_out}'.")
+
 
 @app.command("validate")
 def validate_command(
@@ -587,6 +669,72 @@ def tui_command(
         console.print(dashboard.render_full_dashboard())
     else:
         run_interactive_dashboard(dashboard)
+
+
+@app.command("dashboard")
+def dashboard_command(
+    results_dir: Annotated[
+        str,
+        typer.Option("--results-dir", "-r", help="Directory containing result JSON files"),
+    ] = "results",
+    dashboard_data_dir: Annotated[
+        str,
+        typer.Option("--dashboard-dir", "-d", help="Dashboard data directory"),
+    ] = "dashboard/src",
+) -> None:
+    """Validate benchmark results and copy them into the dashboard data directory (F10)."""
+    r_dir = Path(results_dir)
+    d_dir = Path(dashboard_data_dir)
+    d_dir.mkdir(parents=True, exist_ok=True)
+
+    results_map: dict[str, Any] = {}
+    for letter in ("A", "B", "C", "D"):
+        candidates = sorted(r_dir.glob(f"{letter}_*.json"))
+        if candidates:
+            target = candidates[-1]
+            try:
+                validate_results_file(target)
+                data = json.loads(target.read_text(encoding="utf-8"))
+                results_map[letter] = data
+            except Exception as err:
+                print_warning(f"Could not validate {target.name}: {err}")
+
+    if not results_map:
+        print_error("No valid benchmark results found in results directory to sync.")
+        raise typer.Exit(code=1)
+
+    out_json = d_dir / "results.json"
+    out_json.write_text(json.dumps(results_map, indent=2), encoding="utf-8")
+    print_success(
+        f"Validated and synced results for setups {list(results_map.keys())} to '{out_json}'."
+    )
+    print_info("To view the web dashboard, run: cd dashboard && npm run dev (or npm run preview)")
+
+
+@app.command("clear-cache")
+def clear_cache_command(
+    all_caches: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            "-a",
+            help="Clear both LLM response cache and embedding vector cache",
+        ),
+    ] = False,
+) -> None:
+    """Remove response (and optionally embedding) cache (F11a)."""
+    import shutil
+
+    from toolbench.cache import DiskResponseCache
+
+    DiskResponseCache().clear()
+    print_success("Cleared LLM response disk cache.")
+
+    if all_caches:
+        emb_cache = Path(".cache/toolbench/embeddings")
+        if emb_cache.exists():
+            shutil.rmtree(emb_cache)
+            print_success("Cleared embedding vector cache.")
 
 
 if __name__ == "__main__":
